@@ -1,4 +1,4 @@
-import { enterRoute, resolveRoute, resetRoute } from "@/features/route";
+import { enterRoute, resolveRoute, resetRoute, isTerminal } from "@/features/route";
 import {
   battleState,
   beginBattle,
@@ -28,6 +28,10 @@ import {
   closeShop,
   resetShop,
 } from "@/features/shop";
+import { versionById } from "@/features/rules/model/state";
+import { bindRunPack, rememberMainRef } from "@/features/rules/lib/run";
+import { createDefaultRulePack } from "@/shared/rules";
+import type { RuleVersion } from "@/shared/rules";
 import {
   session,
   switchTab,
@@ -35,11 +39,91 @@ import {
   notify,
   finishRun,
   resetSession,
+  type SessionMode,
 } from "./session";
-import { save, clearSave } from "./persistence";
-function persist() {
-  if (!save()) notify("本地保存失败，请保留当前页面。");
+import {
+  save,
+  load,
+  clearSave,
+  setFrozenRule,
+  frozenRule,
+  ruleRefOf,
+  rememberActiveSlot,
+  type SaveSlot,
+} from "./persistence";
+
+export function activeSlot(): SaveSlot {
+  return session.mode === "trial" ? "trial" : "main";
 }
+
+function persist() {
+  if (!save(activeSlot())) notify("本地保存失败，请保留当前页面。");
+}
+
+function resetGame() {
+  resetRoute();
+  resetBattle();
+  resetDeck();
+  resetReward();
+  resetShop();
+}
+
+function bindVersion(version: RuleVersion, slot: SaveSlot, mode: SessionMode) {
+  setFrozenRule(slot, version.id, version.label, version.pack);
+  bindRunPack(version.pack, ruleRefOf(slot));
+  if (slot === "main") rememberMainRef(ruleRefOf("main"));
+  resetGame();
+  resetSession(mode);
+  rememberActiveSlot(slot);
+  persist();
+}
+
+/** 从已发布版本开始一次正式远征。若正在试跑，先保留试跑进度。 */
+export function startExpedition(versionId: string) {
+  const version = versionById(versionId);
+  if (!version) return false;
+  if (session.mode === "trial") save("trial");
+  bindVersion(version, "main", "normal");
+  setContext(null);
+  switchTab("route");
+  notify(`新的远征「${version.label}」已经启程。`);
+  return true;
+}
+
+/** 在独立存档中使用已发布版本试跑，不会触碰正式远征。 */
+export function startTrial(versionId: string) {
+  const version = versionById(versionId);
+  if (!version) return false;
+  if (session.mode !== "trial") save("main");
+  bindVersion(version, "trial", "trial");
+  setContext(null);
+  switchTab("route");
+  notify(`试跑开始：规则版本「${version.label}」。`);
+  return true;
+}
+
+/** 结束试跑并回到正式远征存档。 */
+export function returnToMain() {
+  if (session.mode !== "trial") return;
+  save("trial");
+  if (!load("main")) {
+    const fallback = versionById(frozenRule("main")?.versionId);
+    if (fallback) {
+      bindVersion(fallback, "main", "normal");
+    } else {
+      setFrozenRule("main", "", "经典远征", createDefaultRulePack());
+      bindRunPack(createDefaultRulePack());
+      resetGame();
+      resetSession("normal");
+      persist();
+    }
+  }
+  rememberActiveSlot("main");
+  setContext(null);
+  switchTab("route");
+  notify("已回到正式远征。");
+}
+
 export function navigate(id: string) {
   if (session.ended) return;
   const c = enterRoute(id);
@@ -92,10 +176,8 @@ export function claim(skip: boolean) {
   earnGold(grant.gold);
   heal(grant.heal);
   resolveRoute();
-  if (session.context?.kind === "boss") {
-    finishRun();
-    notify("裂隙已被封存。你把余烬带回了黎明。");
-  } else notify("奖励已结算，新的路线开放。");
+  finishIfTerminal();
+  if (!session.ended) notify("奖励已结算，新的路线开放。");
   switchTab("route");
   persist();
 }
@@ -116,6 +198,7 @@ export function buy(id: string) {
 export function leaveShop() {
   closeShop();
   resolveRoute();
+  finishIfTerminal();
   switchTab("route");
   persist();
 }
@@ -127,7 +210,8 @@ export function camp(action: "rest" | "upgrade") {
   )
     return;
   resolveRoute();
-  notify("篝火逐渐熄灭，你准备好继续上路。");
+  finishIfTerminal();
+  if (!session.ended) notify("篝火逐渐熄灭，你准备好继续上路。");
   persist();
 }
 export function upgrade(id: string) {
@@ -145,12 +229,33 @@ export function remove(id: string) {
   persist();
 }
 export function restart() {
-  resetRoute();
-  resetBattle();
-  resetDeck();
-  resetReward();
-  resetShop();
-  resetSession();
-  clearSave();
+  const slot = activeSlot();
+  const mode = session.mode;
+  const rule = frozenRule(slot);
+  resetGame();
+  resetSession(mode);
+  if (rule) {
+    bindRunPack(rule.pack, ruleRefOf(slot));
+  }
+  clearSave(slot);
   persist();
+  setContext(null);
+  notify(
+    mode === "trial"
+      ? "试跑已重置，仍使用同一冻结规则版本。"
+      : "新的火种已点燃。",
+  );
+}
+
+/** 抵达没有后继连接的地图终点时结束远征。 */
+function finishIfTerminal() {
+  const id = session.context?.nodeId;
+  if (!id || !isTerminal(id)) return;
+  finishRun();
+  notify("这条路走到了尽头。远征完成。");
+}
+
+/** 规则编辑器改动后触发界面刷新（编辑器本身已就地更新，无需重载游戏）。 */
+export function refresh() {
+  // 草稿变化不触及运行中的远征；这里只保持两侧状态分离。
 }

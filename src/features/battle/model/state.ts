@@ -63,11 +63,13 @@ export function beginBattle(
   state.piles = makePiles(deck, context.nodeId);
   state.energy = 3;
   state.turn = 1;
-  state.phase = "playing";
+  state.phase = state.enemy ? "playing" : "idle";
   state.queue = [];
   state.result = null;
-  state.log = ["战斗开始。状态和牌堆仅属于本场遭遇。"];
-  drawCards(state.piles, 5, 1);
+  state.log = state.enemy
+    ? ["战斗开始。状态和牌堆仅属于本场遭遇。"]
+    : ["当前节点没有可交战的敌人。"];
+  if (state.enemy) drawCards(state.piles, 5, 1);
 }
 function finish() {
   if (!state.enemy || !state.context) return;
@@ -138,7 +140,10 @@ export function endTurn() {
   state.turn++;
   state.energy = 3;
   state.hero.block = 0;
-  state.enemy.block = state.turn % 3 === 0 ? 5 : 0;
+  state.enemy.block =
+    state.enemy.blockEvery > 0 && state.turn % state.enemy.blockEvery === 0
+      ? state.enemy.blockAmount
+      : 0;
   drawCards(state.piles, 5, state.turn);
 }
 export function currentIntent() {

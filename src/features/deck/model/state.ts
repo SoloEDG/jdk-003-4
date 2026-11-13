@@ -1,10 +1,10 @@
 import { reactive, readonly } from "vue";
-import { starter, createCard, canRemove } from "../lib/collection";
+import { starter, createCard, canRemove, heroStart } from "../lib/collection";
 import { upgradeCost, removalCost, campHealing } from "../lib/costs";
 import type { CardInstance, ExpeditionSummary } from "@/shared/domain";
 const state = reactive({
   cards: starter(),
-  hero: { hp: 72, maxHp: 72, gold: 80, scars: 0 } as ExpeditionSummary,
+  hero: heroStart() as ExpeditionSummary,
   removals: 0,
   campUsed: false,
   selected: "",
@@ -83,7 +83,7 @@ export function restoreDeck(d: ReturnType<typeof exportDeck>) {
 }
 export function resetDeck() {
   state.cards = starter();
-  state.hero = { hp: 72, maxHp: 72, gold: 80, scars: 0 };
+  state.hero = heroStart();
   state.removals = 0;
   state.campUsed = false;
   state.selected = "";

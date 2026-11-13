@@ -1,23 +1,29 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { RouteMap, routeState } from "@/features/route";
+import { RouteMap, routeState, routeLength } from "@/features/route";
 import { BattlePanel, battleState } from "@/features/battle";
 import { RewardPanel } from "@/features/reward";
 import { ShopPanel } from "@/features/shop";
 import { DeckPanel, deckState } from "@/features/deck";
+import { RulesPanel } from "@/features/rules";
 import { regionNames } from "@/shared/domain";
 import { session, switchTab } from "./session";
-import { load } from "./persistence";
+import { boot } from "./boot";
 import * as commands from "./commands";
-load();
+boot();
 const tabs = [
   ["route", "路线", "01"],
   ["battle", "战斗", "02"],
   ["reward", "奖励", "03"],
   ["shop", "商店", "04"],
   ["deck", "牌组", "05"],
+  ["rules", "远征规则", "06"],
 ];
-const progress = computed(() => (routeState.visited.length / 9) * 100);
+const progress = computed(() => {
+  const total = routeLength();
+  return total ? (routeState.visited.length / total) * 100 : 0;
+});
+const totalSteps = computed(() => routeLength());
 </script>
 <template>
   <div class="workspace">
@@ -46,7 +52,8 @@ const progress = computed(() => (routeState.visited.length / 9) * 100);
           }}
         </p>
         <div class="progress"><i :style="{ width: progress + '%' }"></i></div>
-        <small>{{ routeState.visited.length }} / 9 段旅程</small>
+        <small>{{ routeState.visited.length }} / {{ totalSteps }} 段旅程</small>
+        <small v-if="session.mode === 'trial'" class="trial-label">试跑模式 · 独立存档</small>
       </div>
       <button class="restart" data-action="restart" @click="commands.restart">
         ↻ 重新启程
@@ -81,7 +88,11 @@ const progress = computed(() => (routeState.visited.length / 9) * 100);
       <div class="message" role="status">
         <span>✦</span>{{ session.message
         }}<small>{{
-          session.ended ? "旅途已结束" : "YOUR CHOICES ECHO FORWARD"
+          session.ended
+            ? "旅途已结束"
+            : session.mode === "trial"
+              ? "TRIAL RUN"
+              : "YOUR CHOICES ECHO FORWARD"
         }}</small>
       </div>
       <div class="content-grid">
@@ -102,6 +113,9 @@ const progress = computed(() => (routeState.visited.length / 9) * 100);
             :gold="deckState.hero.gold"
             @buy="commands.buy"
             @leave="commands.leaveShop"
+          /><RulesPanel
+            v-else-if="session.tab === 'rules'"
+            @changed="commands.refresh"
           /><DeckPanel
             v-else
             :camp="session.context?.kind === 'camp' && !routeState.resolved"
